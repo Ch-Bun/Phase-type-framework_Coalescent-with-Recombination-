@@ -1,0 +1,371 @@
+---
+title: "Correlation_SFS"
+author: "Charlotte Bunnenberg"
+date: "23 3 2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# Load libraries ----
+library(PhaseTypeR)
+library(tidyverse)
+library(grid)
+library(gridExtra)
+library(reshape2)
+# Plot graph
+library(igraph)
+library(ggplot2)
+library("ggpubr")
+library(patchwork)
+# ggplot settings
+theme_set(
+  theme_minimal() +
+    theme(legend.position = "right")
+  )
+cbp1 <- c("#999999", "#E69F00", "#56B4E9", "#009E73",
+          "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+source("Functions.R")
+```
+
+# Figure 4.1: 
+Correlation between the number of segregating sites at two loci and the recombination rate ρ, for different mutation rates θ = (0.1, 1, 10) and sample sizes n = (2, 4, 8).
+```{r}
+# Initialization
+# Create data frame
+df <- data.frame(matrix(ncol = 4, nrow = 0))
+colnames(df) <- c('Recombination.Rate', 'Correlation', 'm', "n")
+
+n_list <-c(2,4,8)
+m_list <- c(0.1,1,10)
+
+for (n in n_list){
+  for (m in m_list){
+    for(rho in seq(0, 6, by=0.5)){
+      #generate rewards, S and a
+      Output <- IntensityMatrix(n, rho)
+      # create MPH
+      MPH_gen <- MPH(Output[["subIntMat"]], Output[["initProbs"]], Output[["rewardMatMRCA"]])
+      #append df with rho, cov and type
+      
+      df[nrow(df) + 1,] = c(rho, corr_SFS(MPH_gen, m),m,n)
+    }
+  }
+}
+
+# Create plot
+plt_cor <- ggplot(data = df, aes(x=Recombination.Rate, y=Correlation, color= factor(m), group=interaction(m, n))) + geom_line(aes(linetype=factor(n)))+ labs(colour =  expression(theta), linetype = "Sample size")+scale_colour_manual(values=c("#E69F00",  "#009E73","#56B4E9"))+xlab(expression(rho))+
+  scale_linetype_manual(values=c("solid","longdash","dotted"))
+#ggsave(file="cor_rho_SFS.pdf", plot=plt_cor, width=6, height=3)
+```
+
+###################################################################
+# Estimate recombination rate using method of moments procedure
+
+Call following to estimate the recombination rate for a sample, with
+- data_joint = the given data set
+- m_estimate = the estimated mutation rate
+- n = the sample size
+```{r}
+optim(par=1, fn=MoM_rho_optim, n = n, m_estimate = m_estimate, data_joint = data, lower = 0, upper = 100, method = 'L-BFGS-B')
+```
+
+# Function to generate plot (like figure 4.2) for a given recombination rate, sample size and mutation rate
+```{r}
+plot_rho_dist_MoM <- function(rho,n,m){
+  # Initialize
+  Output <- IntensityMatrix(n,rho)
+  MPH_gen <- MPH(Output[["subIntMat"]], Output[["initProbs"]], Output[["rewardMatTotal"]])
+  optim_MoM <- vector()
+  
+  for (i in seq(1,100,1)){
+  # Simulate data: poisson distributed number of mutations (use rpois-function)
+  # on tree of random height (use rMPH-function)     
+    nsim = 1000
+    sim_MPH = rMPH(nsim, MPH_gen)
+    sim_pois_1 = Vectorize(rpois, 'lambda')(1, m*sim_MPH[,1])
+    sim_pois_2 = Vectorize(rpois, 'lambda')(1, m*sim_MPH[,2])
+    data_joint <- cbind(sim_pois_1,sim_pois_2)
+    
+    # If wanted an the mutation rate can be estimated:
+    # m_estimate <- (watterson(n,c(sim_pois_1, sim_pois_2)))/2
+    # If instead using the actual mutation rate:
+    m_estimate <- m
+    
+    # Estimate recombination rate
+    optim_MoM[length(optim_MoM)+1] <- optim(par=1, fn=MoM_rho_optim, n = n, m_estimate = m_estimate, data_joint = data_joint, lower = 0, upper = 100, method = 'L-BFGS-B')$par
+  }
+  
+  # Generate ggplot
+  plt <- data_frame(estimated_rho = optim_MoM) %>%
+            ggplot(aes(x = estimated_rho )) + 
+                  geom_histogram(aes(y=..density..), colour="#999999", fill="white")+
+   geom_density(alpha=.2, color = "#56B4E9",fill="#56B4E9") +
+    geom_vline(aes(xintercept=mean(estimated_rho), color = "Simulation mean"),
+              linetype="dashed", size=0.5)+
+    geom_vline(aes(xintercept=rho, color="True"),size=0.5)+
+    scale_color_manual(name = expression(rho), values = c("Simulation mean" = "#56B4E9", "True" = "#E69F00"))+
+    xlab(expression(rho))+ ylab("Density")+
+    ggtitle(label= paste("Approximation error: ", round(abs(rho - mean(optim_MoM)),5)))+
+    theme(plot.title = element_text(size = 8), axis.title.x =element_text(size=9), axis.title.y =element_text(size=9) )
+
+  return(plt)
+}
+```
+
+# Figure 4.2: 
+Estimated recombination rate, using the method of moments, for 1.000 samples for a 100 iterations, represented by bars, with true recombination rate ρ = 1 sample size n = 2 and mutation rate θ = 1. The density of the estimates is shown in blue. The orange line represents the true recombination rate, while the dashed blue line represents the mean of the estimated recombination rates.
+```{r}
+plt_1 <- plot_rho_dist_MoM(1,2,1)
+plt_1
+```
+
+# Figure 4.3: 
+Estimated recombination rate and true recombination rate,
+for 0 < ρ < 15, sample size n = 2 and two mutation rates θ = 0.1
+(orange) and θ = 10 (blue). The grey line is an orientation and refers
+to the true ρ on both axes.
+```{r}
+#Initialize 
+n <- 2
+m <- 0.1
+m_high <- 10
+compare_df_mom_100sim_1000sample <- data.frame(rho=double(),
+                 real_corr=double(),
+                 sim_rho=double(),
+                 sim_rho_high_m = double())
+for(r in seq(0,15,0.25)){
+  Output <- IntensityMatrix(n,r)
+  MPH_gen <- MPH(Output[["subIntMat"]], Output[["initProbs"]], Output[["rewardMatTotal"]])
+  optim_MoM <- vector()
+  optim_MoM_high <- vector()
+# Simulate data: poisson distributed number of mutations (use rpois-function) on tree of random height (use rMPH-function) 
+  for (i in seq(1,100,1)){
+    nsim = 1000
+    sim_MPH = rMPH(nsim, MPH_gen)
+    # For θ = 0.1:
+    sim_pois_1 = Vectorize(rpois, 'lambda')(1, m*sim_MPH[,1])
+    sim_pois_2 = Vectorize(rpois, 'lambda')(1, m*sim_MPH[,2])
+    data_joint <- cbind(sim_pois_1,sim_pois_2)
+    # Estimate recombination rate 
+    optim_MoM[length(optim_MoM)+1] <- optim(par=1, fn=MoM_rho_optim, n = n, m_estimate = m, data_joint = data_joint, lower = 0, upper = 100, method = 'L-BFGS-B')$par 
+    
+    # For θ = 10:
+    sim_pois_1_high = Vectorize(rpois, 'lambda')(1, m_high*sim_MPH[,1])
+    sim_pois_2_high = Vectorize(rpois, 'lambda')(1, m_high*sim_MPH[,2])
+    data_joint_high <- cbind(sim_pois_1_high,sim_pois_2_high)
+    # Estimate recombination rate 
+    optim_MoM_high[length(optim_MoM_high)+1] <- optim(par=1, fn=MoM_rho_optim, n = n, m_estimate = m_high, data_joint = data_joint_high, lower = 0, upper = 100, method = 'L-BFGS-B')$par 
+  } 
+  # Calculate mean of estimated recombination rate over the 100 simulations
+  real_corr_r <- corr_SFS(MPH_gen, m)
+  sim_rho <- mean(optim_MoM)
+  sim_rho_high_m <- mean(optim_MoM_high)
+  compare_df_mom_100sim_1000sample[nrow(compare_df_mom_100sim_1000sample)+1,]<- c(r, real_corr_r,sim_rho,sim_rho_high_m)
+}
+# Plot results
+plt <- compare_df_mom_100sim_1000sample %>% ggplot(aes(x = rho )) + 
+  geom_abline(aes(slope = 1, intercept = 0), colour="#999999") +
+    geom_point(stat="identity",aes(y=sim_rho), colour="#E69F00", size = 0.8)+
+    geom_point(stat="identity",aes(y=sim_rho_high_m), colour="#56B4E9", size = 0.8)+
+    ylab( expression(rho~~"Estimate"))+ xlab(expression(rho))+
+    theme(axis.title.x =element_text(size=9), axis.title.y =element_text(size=9) )
+#ggsave(file="cor_estimateRho_MoM_m01_m10_50_500.pdf", plot=plt, width=6, height=3)
+
+```
+
+###################################################################
+# Estimate recombination rate using maximum likelihood procedure
+
+Call following to estimate the recombination rate for a sample, with
+- data_joint = the given data set
+- m_estimate = the estimated mutation rate
+- n = the sample size
+```{r}
+optim(par=0.01, fn=ML_prob, n = n, m_estimate = m_estimate, data_joint = data, lower = 0.001, upper = 100, method = 'L-BFGS-B')
+```
+
+# Function to generate plot (like figure 4.4) for a given recombination rate, sample size and mutation rate
+```{r}
+# function to produce plot
+plot_rho_dist_prob <- function(rho,n,m){
+  Output <- IntensityMatrix(n,rho)
+  MPH_gen <- MPH(Output[["subIntMat"]], Output[["initProbs"]], Output[["rewardMatTotal"]])
+  rho_est_list_prob <- vector()
+
+  for (i in seq(0,100,1)){
+  # Simulate data (sample size = 1000)
+    nsim = 1000
+    sim_MPH = rMPH(nsim, MPH_gen)
+    sim_pois_1 = Vectorize(rpois, 'lambda')(1, m*sim_MPH[,1])
+    sim_pois_2 = Vectorize(rpois, 'lambda')(1, m*sim_MPH[,2])
+    data_joint <- data.frame(cbind(sim_pois_1,sim_pois_2))
+
+    # If wanted an the mutation rate can be estimated:
+    # m_estimate <- (watterson(n,c(sim_pois_1, sim_pois_2)))/2
+    # If instead using the actual mutation rate:
+    m_estimate <- m
+    
+    # Estimate recombination rate
+    optim_output <- optim(par=0.01, fn=ML_prob, n = n, m_estimate = m_estimate, data_joint = data_joint, lower = 0.001, upper = 100, method = 'L-BFGS-B')
+    # Exclude the boundaries
+    if(optim_output$par < 100 & optim_output$par > 0.0001){
+          rho_est_list_prob[length(rho_est_list_prob)+1] <- optim_output$par
+    }
+  }
+# Create ggplot 
+plt <- data_frame(estimated_rho = rho_est_list_prob) %>%
+            ggplot(aes(x = estimated_rho )) + 
+                  geom_histogram(aes(y=..density..), colour="#999999", fill="white")+
+   geom_density(alpha=.2, color = "#56B4E9",fill="#56B4E9") +
+    geom_vline(aes(xintercept=mean(estimated_rho), color = "Simulation mean"),
+              linetype="dashed", size=0.5)+
+    geom_vline(aes(xintercept=rho, color="True"),size=0.5)+
+    scale_color_manual(name = expression(rho), values = c("Simulation mean" = "#56B4E9", "True" = "#E69F00"))+
+    xlab(expression(rho))+ ylab("Density")+ 
+    theme(plot.title = element_text(size = 8), axis.title.x =element_text(size=9), axis.title.y =element_text(size=9) )+
+    ggtitle(label= paste("Average Approximation error: ", round(abs(rho - mean(rho_est_list_prob)),5)))
+return(plt)
+}
+```
+
+# Figure 4.4: 
+Estimated recombination rate, using the maximum likelihood, for 1.000 samples for a 100 iterations, represented by bars, with true recombination rate ρ = 1 sample size n = 2 and mutation rate θ = 0.1.
+The density of the estimates is shown in blue. The orange line represents the true recombination rate, while the dashed blue line represents the mean of the estimated recombination rates.
+```{r}
+figure4_4 <- plot_rho_dist_prob(1,2,0.1)
+figure4_4
+```
+
+# Figure 4.5: Estimated recombination rate and true recombination rate,
+for 0 < ρ < 15, sample size n = 2 and two mutation rates θ = 0.1
+(orange) and θ = 1 (green).
+```{r}
+n <- 2
+m <- 0.1
+m_high <- 1
+compare_df_ml_100sim_1000sample <- data.frame(
+                 sim_rho=double(),
+                 sim_rho_high_m = double())
+for(r in seq(0,15,0.25)){
+  Output <- IntensityMatrix(n,r)
+  MPH_gen <- MPH(Output[["subIntMat"]], Output[["initProbs"]], Output[["rewardMatTotal"]])
+  optim_ml <- vector()
+  optim_ml_high <- vector()
+  for (i in seq(1,100,1)){
+    #simulate data: pois dist # of mutations on tree of random height rMPH
+    nsim = 10
+    sim_MPH = rMPH(nsim, MPH_gen)
+    sim_pois_1 = Vectorize(rpois, 'lambda')(1, m*sim_MPH[,1])
+    sim_pois_2 = Vectorize(rpois, 'lambda')(1, m*sim_MPH[,2])
+    data_joint <- cbind(sim_pois_1,sim_pois_2)
+    optim_ml[length(optim_ml)+1] <- optim(par=0.00001, fn=ML_prob, n = n, m_estimate = m, data_joint = data_joint, lower = 0.0001, upper = 100, method = 'L-BFGS-B')$par
+  #high mutation rate 
+    sim_pois_1_high = Vectorize(rpois, 'lambda')(1, m_high*sim_MPH[,1])
+    sim_pois_2_high = Vectorize(rpois, 'lambda')(1, m_high*sim_MPH[,2])
+    data_joint_high <- cbind(sim_pois_1_high,sim_pois_2_high)
+    optim_ml_high[length(optim_ml_high)+1] <- optim(par=0.00001, fn=ML_prob, n = n, m_estimate = m_high, data_joint = data_joint_high, lower = 0.0001, upper = 100, method = 'L-BFGS-B')$par
+  } 
+  sim_rho <- mean(optim_MoM)
+  sim_rho_high_m <- mean(optim_MoM_high)
+  compare_df_ml_100sim_1000sample[nrow(compare_df_ml_100sim_1000sample)+1,]<- c(sim_rho,sim_rho_high_m)
+}
+#compare_df_1_10 <- compare_df
+plt <- compare_df_ml_100sim_1000sample %>% ggplot(aes(x = rho )) + 
+  geom_abline(aes(slope = 1, intercept = 0), colour="#999999") +
+    geom_point(stat="identity",aes(y=sim_rho), colour="#E69F00", size = 0.8)+
+    geom_point(stat="identity",aes(y=sim_rho_high_m), colour="#56B4E9", size = 0.8)+
+    ylab( expression(rho~~"Estimate"))+ xlab(expression(rho))+
+    theme(axis.title.x =element_text(size=9), axis.title.y =element_text(size=9) )
+#ggsave(file="cor_estimateRho_ML_m01_m1_50_500.pdf", plot=plt, width=6, height=3)
+
+```
+
+################################################################
+# Compare the two recombination rate estimation methods
+
+# Figure 4.6: Estimated recombination rates for ρ = {0, ..., 5}, using the maximum likelihood procedure (◦) and the method of moments procedure (×). The estimates are based on the mean over 100 samples, each of size 1.000. With sample size n = 2 and mutation rate θ = 0.1.
+```{r}
+# Initialize
+n <- 2
+m <- 0.1
+compare_methods_line <- data.frame(rho=double(),
+                 sim_rho_ML=double(),
+                 sim_rho_MoM = double())
+for(rho in seq(0,5,1)){
+  Output <- IntensityMatrix(n,rho)
+  MPH_gen <- MPH(Output[["subIntMat"]], Output[["initProbs"]], Output[["rewardMatTotal"]])
+  rho_est_list_prob <- vector()
+  rho_est_list_mom <- vector()
+  
+  for (i in seq(1,100,1)){
+    # Simulate data
+    nsim = 1000
+    sim_MPH = rMPH(nsim, MPH_gen)
+    sim_pois_1 = Vectorize(rpois, 'lambda')(1, m*sim_MPH[,1])
+    sim_pois_2 = Vectorize(rpois, 'lambda')(1, m*sim_MPH[,2])
+    data_joint <- cbind(sim_pois_1,sim_pois_2)
+    
+    # Maximum likelihood estimate
+    Ml_par <- optim(par=1, fn=ML_prob, n =n, m_estimate = m, data_joint = data_joint, lower = 0.0001, upper = 100, method = 'L-BFGS-B')$par
+      rho_est_list_prob[length(rho_est_list_prob)+1] <- Ml_par
+    # Method of moments estimate
+    MoM_par <- optim(par=1, fn=MoM_rho_optim, n = n, m_estimate = m, data_joint = data_joint, lower = 0.0001, upper = 100, method = 'L-BFGS-B')$par
+      rho_est_list_mom[length(rho_est_list_mom)+1] <-MoM_par
+  }
+  compare_methods_line[nrow(compare_methods_line)+1,]<- c(rho, mean(rho_est_list_prob), mean(rho_est_list_mom))
+}
+plot_estimates <- ggplot(compare_methods_line,aes(x = rho))+ geom_point(aes(y = sim_rho_ML),colour = "#E69F00", shape = 1) + geom_point(aes(y = sim_rho_MoM),colour = "#E69F00", shape = 3)+ geom_line(aes(y = rho), colour = "#999999")+xlab(expression(rho))+ylab(expression(rho~~"Estimate"))
+#ggsave(file="compare_methods_accuracy.pdf", plot=plot_estimates, width=6, height=3)
+```
+
+# Figure 4.7: Runtime of the two recombination rate estimation methods maximum likelihood (◦) and method of moments (×) for different mutation rates θ. The runtime refers to the time spent within the estimation method when estimating the recombination rate for a data set of size 1.000. With each sample of size n = 2 and mutation rate ρ = 1.
+```{r}
+# Initialize
+n <- 2
+rho <- 1
+compare_methods_line <- data.frame(mutation_rate=double(),
+                 sim_rho_ML=double(),
+                 sim_rho_MoM = double(),
+                mean_runtime_ML = double(),
+                mean_runtime_MoM = double(),
+                total_runtime_ML = double(),
+                total_runtime_MoM = double())
+Output <- IntensityMatrix(n,rho)
+MPH_gen <- MPH(Output[["subIntMat"]], Output[["initProbs"]], Output[["rewardMatTotal"]])
+for(m in seq(0.1,1,0.1)){
+  rho_est_list_prob <- vector()
+  rho_est_list_mom <- vector()
+  rho_est_list_MoM_runtime <- vector()
+  rho_est_list_ML_runtime <- vector()
+  for (i in seq(1,100,1)){
+    # Simulate data
+    nsim = 1000
+    sim_MPH = rMPH(nsim, MPH_gen)
+    sim_pois_1 = Vectorize(rpois, 'lambda')(1, m*sim_MPH[,1])
+    sim_pois_2 = Vectorize(rpois, 'lambda')(1, m*sim_MPH[,2])
+    data_joint <- cbind(sim_pois_1,sim_pois_2)
+    
+    # Measure runtime by using Sys.time()-function
+    # Maximum likelihood estimation
+    start_time_ML <- Sys.time()
+    Ml_par <- optim(par=1, fn=ML_prob, n =n, m_estimate = m, data_joint = data_joint, lower = 0.0001, upper = 100, method = 'L-BFGS-B')$par
+    end_time_ML <- Sys.time()
+      rho_est_list_ML_runtime[length(rho_est_list_ML_runtime)+1] <- end_time_ML -start_time_ML
+      rho_est_list_prob[length(rho_est_list_prob)+1] <- Ml_par
+    
+    # Method of moments estimation
+    start_time_MoM <- Sys.time()
+    MoM_par <- optim(par=1, fn=MoM_rho_optim, n = n, m_estimate = m, data_joint = data_joint, lower = 0.0001, upper = 100, method = 'L-BFGS-B')$par
+    end_time_MoM <- Sys.time()
+      rho_est_list_mom[length(rho_est_list_mom)+1] <-MoM_par
+      rho_est_list_MoM_runtime[length(rho_est_list_MoM_runtime)+1] <- end_time_MoM -start_time_MoM
+  }
+  compare_methods_line[nrow(compare_methods_line)+1,]<- c(m, mean(rho_est_list_prob), mean(rho_est_list_mom), mean(rho_est_list_ML_runtime), mean(rho_est_list_MoM_runtime), sum(rho_est_list_ML_runtime), sum(rho_est_list_MoM_runtime))
+}
+
+# Plot
+plot_runtime <- ggplot(compare_methods_line,aes(x = mutation_rate))+ geom_point(aes(y = total_runtime_ML),colour = "#999999", shape = 1) + geom_point(aes(y = total_runtime_MoM),colour = "#999999", shape = 3)+xlab(expression(theta))+ylab("runtime [ms]")
+
+#ggsave(file="compare_runtime.pdf", plot=plot_runtime, width=6, height=3)
+```

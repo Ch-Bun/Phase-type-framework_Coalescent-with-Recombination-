@@ -1,0 +1,335 @@
+---
+title: "TestFunctions"
+author: "Charlotte Bunnenberg"
+date: "21 3 2023"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# Load libraries
+library(PhaseTypeR)
+library(tidyverse)
+library(grid)
+library(gridExtra)
+library(reshape2)
+#plot graph
+library(igraph)
+library(ggplot2)
+# ggplot settings
+theme_set(
+  theme_minimal() +
+    theme(legend.position = "right")
+  )
+cbp1 <- c("#999999", "#E69F00", "#56B4E9", "#009E73",
+          "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+source("Functions.R")
+```
+
+# CHECK: Reduce-state-space function
+```{r}
+Output <- IntensityMatrix(2,2)
+Output_reduced <- reduce_S(Output)
+
+# create MPH
+MPH_gen <- MPH(Output[["subIntMat"]], Output[["initProbs"]], Output[["rewardMatTotal"]])
+MPH_gen_reduced <- MPH(Output_reduced[["subIntMat"]], Output_reduced[["initProbs"]], Output_reduced[["rewardMatTotal"]])
+# Plot Density function
+x <- seq(0, 10, 0.1)
+#plot rho = 0
+y <- dMPH(x, MPH_gen)
+y1 <- dMPH(x, MPH_gen_reduced)
+plot(x, y[1,], type = 'l', col = 'orange')
+lines(x, y1[1,],type = 'p', col = 'blue')
+legend(x = "topright", text.font = 4,legend=c(expression('S normal, T'[total]), expression('S reduced, T'[total])),
+       col=c("orange", "blue"), lty=1)
+title('Density function of left tree height comparing normal to reduced S\n starting at (2,0,0), n=2, rho=2')
+
+# starting at (0,2,1)
+init_p <- c(0,0,0,0,0,1,0)
+init_p_reduced <- c(0,0,0,1,0)
+# create MPH
+MPH_gen <- MPH(Output[["subIntMat"]], init_p, Output[["rewardMatTotal"]])
+MPH_gen_reduced <- MPH(Output_reduced[["subIntMat"]],init_p_reduced, Output_reduced[["rewardMatTotal"]])
+# Plot Density function
+x <- seq(0, 10, 0.1)
+#plot rho = 0
+y <- dMPH(x, MPH_gen)
+y1 <- dMPH(x, MPH_gen_reduced)
+plot(x, y[1,], type = 'l', col = 'orange')
+lines(x, y1[1,],type = 'p', col = 'blue')
+legend(x = "topright", text.font = 4,legend=c(expression('S normal, T'[total]), expression('S reduced, T'[total])),
+       col=c("orange", "blue"), lty=1)
+title('Density function of left tree height comparing normal to reduced S\n starting at (0,2,1), n=2, rho=2')
+```
+
+# CHECK: Compare the attributes correlation and covariance of the generated phase-type objects to the expected results from Wakeley's book for different recombination rates and sample size n = 2.
+
+```{r}
+# Generate phase-type object for rho = {0,4,10}
+Output0 <- IntensityMatrix(2, 0)
+Output4 <- IntensityMatrix(2,4)
+Output10 <- IntensityMatrix(2,10)
+
+MPH_gen0 <- MPH(Output0[["subIntMat"]], Output0[["initProbs"]], Output0[["rewardMatMRCA"]])
+MPH_gen4 <- MPH(Output4[["subIntMat"]], Output4[["initProbs"]], Output4[["rewardMatMRCA"]])
+MPH_gen10 <- MPH(Output10[["subIntMat"]], Output10[["initProbs"]], Output10[["rewardMatMRCA"]])
+
+x <- seq(0, 10000, 1)
+# Generate random tree length data sets
+rho0 <- cbind(rMPH(x, MPH_gen0),0)
+rho4 <- cbind(rMPH(x, MPH_gen4),4)
+rho10 <- cbind(rMPH(x, MPH_gen10),10)
+
+# Print the observed and expected covariance and correlation for the given objects:
+
+#rho = 0: covariance and correlation should be 1
+print("rho = 0")
+print("correlation == covariance of tree length: (should be 1)")
+cor(rho0[,1], rho0[,2])
+cov_1(0) 
+
+print("covariance: (should be 1)")
+cov(rho0[,1], rho0[,2]) 
+cov_1(0)
+
+print("variance:")
+var(rho0[,1])
+var(MPH_gen0)
+
+print("mean: (should be 1)")
+mean(rho0[,2])
+mean(MPH_gen0)
+
+# rho = 4
+print("rho = 4")
+print("correlation:")
+cor(rho4[,1], rho4[,2])
+cov_1(4)
+print("variance:")
+var(rho4[,1])
+var(MPH_gen4, 1)
+print("covariance:")
+cov(x = rho4[,1], y = rho4[,2])
+cov_1(4)
+print("mean:")
+mean(rho4[,2])
+mean(MPH_gen4)
+
+# rho = 10
+print("rho = 10")
+print("correlation:")
+cor(rho10[,1], rho10[,2])
+cov_1(10)
+print("variance:")
+var(rho10[,1])
+var(MPH_gen10, 1)
+print("covariance:")
+cov(x = rho10[,1], y = rho10[,2])
+cov_1(10)
+print("mean:")
+mean(rho10[,2])
+mean(MPH_gen10)
+```
+
+
+# Plot: Relation between tree heights of the two loci for different rho,
+  using the objects generated above!
+  Observation: Density-curves are the same, but correlation decreases with increasing rho
+```{r}
+# Create data frame for plot
+y <- rbind(rho0, rho4, rho10)
+df <- data_frame(tree_height1 = y[,1], tree_height2 = y[,2], rho = as.character(y[,3]))
+# Plot
+plot1 <- ggplot(df, aes(x = tree_height1, y = tree_height2, color = rho)) + 
+  geom_point(aes(color = rho), size = 3, alpha = 0.1) + 
+  geom_point(aes(color = rho),shape = 1, size = 3, stroke = 0.2) + 
+  scale_y_continuous(name = "Tree height locus 1", 
+                      limits = c(0,10), expand = c(0, 0)) + 
+  scale_x_continuous(name = "Tree height locus 2", 
+                      limits = c(0,10),expand = c(0, 0)) +
+  scale_color_manual(values=c("#999999", "#E69F00", "#56B4E9"))+
+  theme_pubr() +
+  theme(legend.position = "bottom", legend.direction = "horizontal")
+# Density functions of tree heights in locus 1
+dens1 <- ggplot(df, aes(x = tree_height1, color = rho)) + 
+  geom_density(alpha = 0.4) + 
+  theme_void() + 
+  scale_color_manual(values=c("#999999", "#E69F00", "#56B4E9"))+
+  theme(legend.position = "none")
+
+# Density functions of tree heights in locus 2
+dens2 <- ggplot(df, aes(x = tree_height2, color = rho)) + 
+  geom_density(alpha = 0.4) + 
+  theme_void() + 
+  theme(legend.position = "none") + 
+  scale_color_manual(values=c("#999999", "#E69F00", "#56B4E9"))+
+  coord_flip()
+# Final plot
+dens1 + plot_spacer() + plot1 + dens2 + 
+  plot_layout(ncol = 2, nrow = 2, widths = c(5, 2), heights = c(2, 5))
+```
+
+# CHECK: Plot expected density of the tree heights against observed density for rho = 0
+  Observation: density curve drops when very close to 0, because of the density package
+```{r}
+# Create data frame for plot
+x <- seq(0, 6, 0.1)
+rho0_expected <- data_frame(treeheight = (cbind(dMPH(x, MPH_gen0)[1,])))
+rho0_expected['x'] <-x
+df <- data_frame(tree_height1 = rho0[,1], tree_height2 = rho0[,2], )
+
+# Plot
+plot1 <- ggplot(df, aes(x = tree_height1, y = tree_height2))+ 
+  geom_point(size = 3, alpha = 0.03, color = "#E69F00") + 
+  scale_y_continuous(name = "Tree height locus 1", 
+                      limits = c(0,6), expand = c(0, 0)) + 
+  scale_x_continuous(name = "Tree height locus 2", 
+                      limits = c(0,6),expand = c(0, 0)) +
+  theme_pubr()
+
+# Density function of tree height in locus 1
+dens1 <- ggplot(df) + 
+  geom_density(aes(x = tree_height1),alpha = 0.4, color = "#E69F00") + 
+  geom_line(data = rho0_expected, aes(x = x, y = treeheight), color="#999999")+
+  theme_void()+  
+  theme(legend.position = "none")
+# Density function of tree height in locus 2
+dens2 <- ggplot(df) + 
+  geom_density(aes(x = tree_height2, color = "Simulated"),alpha = 0.4) + 
+  geom_line(data = rho0_expected, aes(x = x, y = treeheight, color="Expected"))+
+  theme_void() +
+  scale_color_manual(name='Density',
+                     breaks=c('Simulated', 'Expected'),
+                     values=c('Simulated'='#E69F00', 'Expected'='#999999'))+
+  theme(legend.position = "right")+
+  coord_flip()
+# Final plot
+dens1 + plot_spacer() + plot1 + dens2 + 
+  plot_layout(ncol = 2, nrow = 2, widths = c(5, 2), heights = c(2, 5))
+```
+
+# CHECK: Compare density of tree heights for standard coalescent model and implemented coalescent with recombination model 
+  Idea: For rho = 0 the returned variables should be the same as the once from 
+  the standard coalescent model.
+```{r}
+# Initialize
+n <- 5
+rho <- 0
+sModel <- basicCoalModel(n)
+MPH_simple <- MPH(sModel[["subIntMat"]], sModel[["initProbs"]], sModel[["rewardMatTotal"]])
+
+# Create MPH for advanced model with rho = 0
+test_gen <- IntensityMatrix(n,rho)
+MPH_gen <- MPH(test_gen[["subIntMat"]], test_gen[["initProbs"]], test_gen[["rewardMatTotal"]])
+
+# Plot density function of standard coalescent model
+x <- seq(0, 10, 0.1)
+y <- dMPH(x, MPH_simple)
+plot(x, y[1,], type = 'p', col = 'orange', ylab = "Density", xlab = "Tree height")
+# Add to plot density function of implemented model  
+y2 <- dMPH(x, MPH_gen)
+lines(x, y2[1,], col = 'blue',  type = 'l')
+legend(6, 0.5, legend=c(expression('Simple, T'[total]), expression('generated, T'[total])),
+       col=c("orange", "blue"), lty=1)
+title(paste('Density function (n=',n,', rho=0)'))
+```
+
+# CHECK: Compare covarianve equations from Wakeley's book to covariance generated by Phase-type distributions (n=2)
+```{r}
+#create data frame
+df <- data.frame(matrix(ncol = 4, nrow = 0))
+colnames(df) <- c('Recombination.Rate', 'Generated', 'Wakeley', 'Start.state')
+
+#generate cov-values for rho in 0-10
+for(rho in seq(0, 10, by=0.5)){
+      #generate rewards, S and a
+  Output <- IntensityMatrix(2, rho)
+      # create MPH
+      MPH_gen_1 <- MPH(Output[["subIntMat"]], Output[["initProbs"]], Output[["rewardMatMRCA"]])
+      MPH_gen_2 <- MPH(Output[["subIntMat"]], c(0,1,0,0,0,0,0), Output[["rewardMatMRCA"]])
+      MPH_gen_3 <- MPH(Output[["subIntMat"]], c(0,0,0,0,1,0,0), Output[["rewardMatMRCA"]])
+      #append df with rho and cov
+      df[nrow(df) + 1,] = c(rho, var(MPH_gen_1)[1,2], cov_1(rho), 1)
+      df[nrow(df) + 1,] = c(rho, var(MPH_gen_2)[1,2], cov_2(rho), 2)
+      df[nrow(df) + 1,] = c(rho, var(MPH_gen_3)[1,2], cov_3(rho), 3)
+
+}
+# create line plot 
+# melt data frame into long format
+df<- melt(df ,  id.vars = c('Recombination.Rate', 'Start.state'), variable.name = 'Covariance')
+# plot 
+ggplot(df, aes(x = Recombination.Rate, y = value, group = interaction(Start.state,Covariance) , colour = Covariance, linetype = Covariance )) +
+  geom_line()+ylab("Covariance") +xlab(expression(rho))+scale_linetype_manual(values=c("solid", "dotted"))+
+  ggtitle("Compare covarianve equation (Wakeley) \nto covariance generated by Phase-type distributions (n=2)\nfor X in {1,2,3}")+ scale_color_manual(values=c("orange", "blue"))
+
+```
+
+# Heatmap: Possible transitions between states
+  # red: coalescence event, blue: recombination event
+```{r}
+n <- 4
+# generate matrixes for recombination and mutation separatly to add categories
+Output_rec <- IntensityMatrix(n, 1)
+Output_mut <- IntensityMatrix(n, 0)
+
+data_rec <- as.data.frame(Output_rec[["subIntMat"]])%>%
+  rownames_to_column("Y") %>%
+  pivot_longer(-c(Y), names_to = "X", values_to = "recombination")
+
+data_mut <- as.data.frame(Output_mut[["subIntMat"]])%>%
+  rownames_to_column("Y") %>%
+  pivot_longer(-c(Y), names_to = "X", values_to = "coalescence")
+
+#join two tables and assign type: coalescence, recombination, exit or nothing
+joined <- inner_join(data_rec, data_mut, by = c("X","Y")) %>% mutate(total = (coalescence + recombination)) %>% mutate(type = case_when(coalescence > 0 ~ "Coal", recombination > 0 ~ "Rec", total < 0 ~ "Neg", total == 0 ~ "0")) 
+
+joined$X <- with(joined,factor(X,levels = rev(sort(unique(X)))))
+#table with rewards
+data_rec$Y
+reward_table <- as.data.frame(Output_mut[["rewardMatTotal"]])
+row.names(reward_table) <- rownames(Output_mut[["subIntMat"]])
+colnames(reward_table) <- c("R1","R2")
+reward_table_plot <-tableGrob(reward_table, theme = ttheme_minimal())
+#to fit table on pdf next to plot
+reward_table_plot$heights <- unit(rep(1/nrow(reward_table_plot), nrow(reward_table_plot)), "npc")
+
+heatmap_plot <-joined %>% ggplot(aes(X, y = Y)) + geom_tile(aes(fill = type))+scale_fill_manual(values = c("Rec" = "blue", "Coal" = "red", "Neg" = "grey", "0" = "white"))+theme(axis.text.x = element_text(angle=90, vjust=.5, hjust=1)) +theme(
+      axis.title.x=element_blank(),
+      axis.title.y=element_blank())
+if (n > 4){
+  heatmap_plot <- heatmap_plot + theme(
+      axis.text.x=element_blank(),
+      axis.text.y=element_blank())
+}
+
+#plot heatmap
+heatmap_plot +coord_fixed()
+
+# save plot
+#png(paste("Slide17_", n, ".png"))
+#gtable_combine(heatmap_plot + reward_table_plot, along=1)
+#dev.off() 
+
+```
+
+# Represent Markov process as graph 
+```{r}
+Output <- IntensityMatrix(2, 2)
+# create MPH
+Y_network <- phase_type_to_network(PH(Output[["subIntMat"]]))
+set.seed(200)
+plot(Y_network, vertex.size = 20,layout = layout_with_fr(Y_network,  weights = rep(1, length(E(Y_network)))),asp = .66, rescale = T)
+#vertex.shape = "square"
+```
+
+# Figure 6.1:
+The size of the state space as a function of the sample size n 
+```{r}
+eq <- function(x){x*((2*x**2 + 9*x + 1)/6 )}
+state_df <- data.frame("n" = seq(0,100,1))
+state_df <- state_df %>% mutate(states = n*((2*n**2 + 9*n + 1)/6))
+p<-ggplot(state_df,aes(x = n,y = states))+ geom_point(colour = "#999999", size = 0.5) + ylab("# states")
+#ggsave(file="nuber_states.pdf", plot=p, width=5, height=3)
+```
