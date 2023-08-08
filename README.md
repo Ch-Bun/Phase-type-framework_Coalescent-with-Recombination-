@@ -1,0 +1,25 @@
+
+<!-- README.md is generated from README.Rmd. Please edit that file -->
+
+# Implementations: Inference for the coalescent with recombination via phase-type theory
+
+This GitHub repository contains all the implementations made during the
+completion of the master thesis “Inference for the coalescent with
+recombination via phase-type theory”. Below is a brief overview of the
+different files and their contents.
+
+The file `Functions.R` implements the core functions needed for the
+representation of the coalescent process with recombination via
+phase-type theory, for arbitrary sample size and recombination rate.
+Additionally, two recombination rate estimation methods are implemented
+(1) the method of moments procedure using Kulkarni’s reward structure of
+phase type and (2) the maximum likelihood procedure using a sampling
+formula with a homogeneous coalescent model. In the file
+`TestFunctions.Rmd` several tests are implemented to check if the
+implemented functions in `Functions.R` are correct. The file
+`RecombinationRateEstimation.Rmd` contains the different simulations and
+their visualisations for the two recombination rate estimation methods.
+The files `Comparison_SamplingFormulae.Rmd` and
+`Comparison_SamplingFormulae.nb` are intended to compare the sampling
+formula introduced in this thesis with the sampling formula of the loose
+linkage approach proposed by Frederic Alberti.
