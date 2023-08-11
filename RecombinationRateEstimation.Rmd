@@ -239,12 +239,13 @@ figure4_4
 
 # Figure 4.5: Estimated recombination rate and true recombination rate,
 for 0 < ρ < 15, sample size n = 2 and two mutation rates θ = 0.1
-(orange) and θ = 1 (green).
+(orange) and θ = 0.5 (dark blue).
 ```{r}
 n <- 2
 m <- 0.1
-m_high <- 1
+m_high <- 0.5
 compare_df_ml_100sim_1000sample <- data.frame(
+                 rho = double(),
                  sim_rho=double(),
                  sim_rho_high_m = double())
 for(r in seq(0,15,0.25)){
@@ -252,29 +253,30 @@ for(r in seq(0,15,0.25)){
   MPH_gen <- MPH(Output[["subIntMat"]], Output[["initProbs"]], Output[["rewardMatTotal"]])
   optim_ml <- vector()
   optim_ml_high <- vector()
-  for (i in seq(1,100,1)){
+  for (i in seq(1,10,1)){
     #simulate data: pois dist # of mutations on tree of random height rMPH
-    nsim = 10
+    nsim = 1000
     sim_MPH = rMPH(nsim, MPH_gen)
     sim_pois_1 = Vectorize(rpois, 'lambda')(1, m*sim_MPH[,1])
     sim_pois_2 = Vectorize(rpois, 'lambda')(1, m*sim_MPH[,2])
     data_joint <- cbind(sim_pois_1,sim_pois_2)
     optim_ml[length(optim_ml)+1] <- optim(par=0.00001, fn=ML_prob, n = n, m_estimate = m, data_joint = data_joint, lower = 0.0001, upper = 100, method = 'L-BFGS-B')$par
+    print("small rho done")
   #high mutation rate 
     sim_pois_1_high = Vectorize(rpois, 'lambda')(1, m_high*sim_MPH[,1])
     sim_pois_2_high = Vectorize(rpois, 'lambda')(1, m_high*sim_MPH[,2])
     data_joint_high <- cbind(sim_pois_1_high,sim_pois_2_high)
     optim_ml_high[length(optim_ml_high)+1] <- optim(par=0.00001, fn=ML_prob, n = n, m_estimate = m_high, data_joint = data_joint_high, lower = 0.0001, upper = 100, method = 'L-BFGS-B')$par
+    print("big rho done")
   } 
-  sim_rho <- mean(optim_MoM)
-  sim_rho_high_m <- mean(optim_MoM_high)
-  compare_df_ml_100sim_1000sample[nrow(compare_df_ml_100sim_1000sample)+1,]<- c(sim_rho,sim_rho_high_m)
+  compare_df_ml_100sim_1000sample[nrow(compare_df_ml_100sim_1000sample)+1,]<- c(r, mean(optim_ml),mean(optim_ml_high))
+  print("new row")
 }
 #compare_df_1_10 <- compare_df
 plt <- compare_df_ml_100sim_1000sample %>% ggplot(aes(x = rho )) + 
   geom_abline(aes(slope = 1, intercept = 0), colour="#999999") +
     geom_point(stat="identity",aes(y=sim_rho), colour="#E69F00", size = 0.8)+
-    geom_point(stat="identity",aes(y=sim_rho_high_m), colour="#56B4E9", size = 0.8)+
+    geom_point(stat="identity",aes(y=sim_rho_high_m), colour="#0072B2", size = 0.8)+
     ylab( expression(rho~~"Estimate"))+ xlab(expression(rho))+
     theme(axis.title.x =element_text(size=9), axis.title.y =element_text(size=9) )
 #ggsave(file="cor_estimateRho_ML_m01_m1_50_500.pdf", plot=plt, width=6, height=3)
